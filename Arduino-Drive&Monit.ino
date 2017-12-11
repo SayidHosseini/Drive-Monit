@@ -1,9 +1,19 @@
+#include <string.h>
 #include <SHT1X.h>
 #include <ESP8266WiFi.h>
 #include <Servo.h>
 
-const char* SSID = "V10_8081";
-const char* password = "1a2s3d4f";
+/* Pin Numbers Definition */
+int ldrPin = A0;
+int servoPin = D0;
+int shSCKPin = D1;
+int shDATAPin = D2;
+int ssegAPin = D5;
+int ssegBPin = D6;
+int ssegCPin = D7;
+int ssegDPin = D8;
+
+/* Variables */
 char str[8];
 int degree;
 float tempC = 0;
@@ -19,11 +29,13 @@ const int numbers[11][4] = { {0, 0, 0, 0},
                              {1, 0, 0, 0},
                              {1, 0, 0, 1},
                              {1, 1, 1, 1}};
+Servo ourServo;
 
+/* WiFi Information */
+const char* SSID = "V10_8081";
+const char* password = "1a2s3d4f";
 WiFiServer WebServer(80);
 WiFiClient client;
-
-Servo ourServo;
 
 void setup()
 {
@@ -31,26 +43,26 @@ void setup()
   Serial.println();
 
   //7-Segment
-  pinMode(D5, OUTPUT);
-  pinMode(D6, OUTPUT);
-  pinMode(D7, OUTPUT);
-  pinMode(D8, OUTPUT);
+  pinMode(ssegAPin, OUTPUT);
+  pinMode(ssegBPin, OUTPUT);
+  pinMode(ssegCPin, OUTPUT);
+  pinMode(ssegDPin, OUTPUT);
 
   //Turn 7-Segment off
-  digitalWrite(D5, 1);
-  digitalWrite(D6, 1);
-  digitalWrite(D7, 1);
-  digitalWrite(D8, 1);
+  digitalWrite(ssegAPin, 1);
+  digitalWrite(ssegBPin, 1);
+  digitalWrite(ssegCPin, 1);
+  digitalWrite(ssegDPin, 1);
     
   WiFi.disconnect();
   WiFi.mode(WIFI_STA);
   WiFi.begin(SSID, password);
 
   //Display c on 7seg(Connecting)
-  digitalWrite(D5, 0);
-  digitalWrite(D6, 1);
-  digitalWrite(D7, 0);
-  digitalWrite(D8, 1);
+  digitalWrite(ssegAPin, 0);
+  digitalWrite(ssegBPin, 1);
+  digitalWrite(ssegCPin, 0);
+  digitalWrite(ssegDPin, 1);
 
   
   while (WiFi.status() != WL_CONNECTED) {
@@ -61,11 +73,11 @@ void setup()
   Serial.print("Server is UP and RUNNING: ");
   Serial.println(WiFi.localIP());
 
-  //Display 0 on 7seg to Start
-  digitalWrite(D5, 1);
-  digitalWrite(D6, 1);
-  digitalWrite(D7, 1);
-  digitalWrite(D8, 1);
+  //Turn 7seg off
+  digitalWrite(ssegAPin, 1);
+  digitalWrite(ssegBPin, 1);
+  digitalWrite(ssegCPin, 1);
+  digitalWrite(ssegDPin, 1);
 }
 
 void loop()
@@ -88,17 +100,17 @@ void loop()
     sprintf(str, "/7seg=%d", i);
     if(request.indexOf(str) != -1)
     {
-      digitalWrite(D5, numbers[i][3]);
-      digitalWrite(D6, numbers[i][2]);
-      digitalWrite(D7, numbers[i][1]);
-      digitalWrite(D8, numbers[i][0]);
+      digitalWrite(ssegAPin, numbers[i][3]);
+      digitalWrite(ssegBPin, numbers[i][2]);
+      digitalWrite(ssegCPin, numbers[i][1]);
+      digitalWrite(ssegDPin, numbers[i][0]);
     }
   }
 
   if(request[4] == '/' && request[5] == 's' && request[6] == 'e' && request[7] == 'r' && request[8] == 'v' && request[9] == 'o' && request[10] == '=')
   {
     degree = (request[11] - 48) * 100 + (request[12] - 48) * 10 + (request[13] - 48);
-    ourServo.attach(D0);
+    ourServo.attach(servoPin);
     for(int pos = 0; pos <= degree ; pos++)
     {
       ourServo.write(pos);
@@ -107,12 +119,12 @@ void loop()
     ourServo.detach();
   }
 
-  SHT1x sht15(D2, D1); //Data, SCK
+  SHT1x sht15(shDATAPin, shSCKPin); //Data, SCK
 
   tempC = sht15.readTemperatureC();
   humidity = sht15.readHumidity();
 
-  int light = analogRead(A0);
+  int light = analogRead(ldrPin);
   light = map(light, 0, 1023, 0, 100);
   
   // Return the response
