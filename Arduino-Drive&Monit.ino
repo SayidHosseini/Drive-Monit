@@ -1,7 +1,8 @@
-#include <string.h>
-#include <SHT1X.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #include <Servo.h>
+#include <SHT1X.h>
+#include <string.h>
 
 /* Pin Numbers Definition */
 int ldrPin = A0;
@@ -33,10 +34,11 @@ const int numbers[11][4] = { {0, 0, 0, 0},
 Servo ourServo;
 
 /* WiFi Information */
-const char* SSID = "V10_8081";
-const char* password = "1a2s3d4f";
+const char* SSID = "DSM-A";
+const char* password = "qwerqwed";
 WiFiServer WebServer(80);
 WiFiClient client;
+MDNSResponder mdns;
 
 void setup()
 {
@@ -66,7 +68,6 @@ void setup()
   digitalWrite(ssegBPin, 1);
   digitalWrite(ssegCPin, 0);
   digitalWrite(ssegDPin, 1);
-
   
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -77,6 +78,10 @@ void setup()
   Serial.print("Server is UP and RUNNING: ");
   Serial.println(myIP);
 
+  // Start MDNS
+  if (mdns.begin("drivemonit", WiFi.localIP()))
+    Serial.println("MDNS responder started");
+    
   //Turn 7seg off
   digitalWrite(ssegAPin, 1);
   digitalWrite(ssegBPin, 1);
