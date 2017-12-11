@@ -8,6 +8,7 @@ int ldrPin = A0;
 int servoPin = D0;
 int shSCKPin = D1;
 int shDATAPin = D2;
+int ssegDotPin = D3;
 int ssegAPin = D5;
 int ssegBPin = D6;
 int ssegCPin = D7;
@@ -47,12 +48,14 @@ void setup()
   pinMode(ssegBPin, OUTPUT);
   pinMode(ssegCPin, OUTPUT);
   pinMode(ssegDPin, OUTPUT);
+  pinMode(ssegDotPin, OUTPUT);
 
   //Turn 7-Segment off
   digitalWrite(ssegAPin, 1);
   digitalWrite(ssegBPin, 1);
   digitalWrite(ssegCPin, 1);
   digitalWrite(ssegDPin, 1);
+  digitalWrite(ssegDotPin, 1);
     
   WiFi.disconnect();
   WiFi.mode(WIFI_STA);
@@ -69,15 +72,19 @@ void setup()
     delay(500);
   }
   WebServer.begin();
+  IPAddress myIP = WiFi.localIP();
   
   Serial.print("Server is UP and RUNNING: ");
-  Serial.println(WiFi.localIP());
+  Serial.println(myIP);
 
   //Turn 7seg off
   digitalWrite(ssegAPin, 1);
   digitalWrite(ssegBPin, 1);
   digitalWrite(ssegCPin, 1);
   digitalWrite(ssegDPin, 1);
+
+  //Display IP on 7-Segment
+  displayIP(myIP);
 }
 
 void loop()
@@ -157,7 +164,7 @@ void loop()
   client.println("<a href = \"/7seg=8\">8</a>");
   client.println("<a href = \"/7seg=9\">9</a>");
   client.println("<a href = \"/7seg=10\">Off</a>");
-  client.println("</br></br>Serov: ");
+  client.println("</br></br>Servo: ");
   client.println("<a href = \"/servo=000\">0</a>");
   client.println("<a href = \"/servo=030\">30</a>");
   client.println("<a href = \"/servo=045\">45</a>");
@@ -167,4 +174,71 @@ void loop()
   client.println("<a href = \"/servo=179\">179</a>");
   client.println("</body>");
   client.println("</html>");
+}
+
+void displayIP(IPAddress myIP) // Display IP on 7-SEGMENT
+{
+  int digit1, digit2, digit3;
+  
+  for(int i = 0 ; i < 4 ; i++)
+  {
+    digit1 = myIP[i] / 100;
+    digit2 = (myIP[i] - (digit1 * 100)) / 10;
+    digit3 = myIP[i] - (digit1 * 100) - (digit2 * 10);
+
+    if(digit1 != 0)
+    {
+      digitalWrite(ssegAPin, numbers[digit1][3]);
+      digitalWrite(ssegBPin, numbers[digit1][2]);
+      digitalWrite(ssegCPin, numbers[digit1][1]);
+      digitalWrite(ssegDPin, numbers[digit1][0]);
+
+      delay(500);      
+    }
+    
+    digitalWrite(ssegAPin, 1);
+    digitalWrite(ssegBPin, 1);
+    digitalWrite(ssegCPin, 1);
+    digitalWrite(ssegDPin, 1);
+
+    delay(100);
+          
+    if(digit2 != 0)
+    {
+      digitalWrite(ssegAPin, numbers[digit2][3]);
+      digitalWrite(ssegBPin, numbers[digit2][2]);
+      digitalWrite(ssegCPin, numbers[digit2][1]);
+      digitalWrite(ssegDPin, numbers[digit2][0]);
+
+      delay(500);      
+    }
+
+    digitalWrite(ssegAPin, 1);
+    digitalWrite(ssegBPin, 1);
+    digitalWrite(ssegCPin, 1);
+    digitalWrite(ssegDPin, 1);
+
+    delay(100);
+
+    digitalWrite(ssegAPin, numbers[digit3][3]);
+    digitalWrite(ssegBPin, numbers[digit3][2]);
+    digitalWrite(ssegCPin, numbers[digit3][1]);
+    digitalWrite(ssegDPin, numbers[digit3][0]);
+
+    delay(500);      
+
+    digitalWrite(ssegAPin, 1);
+    digitalWrite(ssegBPin, 1);
+    digitalWrite(ssegCPin, 1);
+    digitalWrite(ssegDPin, 1);
+
+    delay(100);
+
+    if(i != 3)
+    {
+      digitalWrite(ssegDotPin, 0);
+      delay(250);
+      digitalWrite(ssegDotPin, 1);
+    }
+  }
 }
