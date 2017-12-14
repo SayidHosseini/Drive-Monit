@@ -1,8 +1,9 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
+#include <ESP8266WebServer.h>
 #include <Servo.h>
 #include <SHT1X.h>
-#include <string.h>
+#include <stdio.h>
 
 /* Pin Numbers Definition */
 int ldrPin = A0;
@@ -18,8 +19,10 @@ int ssegDPin = D8;
 /* Variables */
 char str[8];
 int degree;
-float tempC = 0;
-float humidity = 0;
+int tempC = 0;
+int humidity = 0;
+int sevenSegmentValue = -1;
+int light = 0;
 const int numbers[11][4] = { {0, 0, 0, 0},
                              {0, 0, 0, 1},
                              {0, 0, 1, 0},
@@ -34,17 +37,14 @@ const int numbers[11][4] = { {0, 0, 0, 0},
 Servo ourServo;
 
 /* WiFi Information */
-const char* SSID = "DSM-A";
-const char* password = "qwerqwed";
-WiFiServer WebServer(80);
+const char* SSID = "WiFi_SSID";
+const char* password = "WiFi_Password";
+ESP8266WebServer WebServer(80);
 WiFiClient client;
 MDNSResponder mdns;
 
 void setup()
 {
-  Serial.begin(115200);
-  Serial.println();
-
   //7-Segment
   pinMode(ssegAPin, OUTPUT);
   pinMode(ssegBPin, OUTPUT);
@@ -53,10 +53,8 @@ void setup()
   pinMode(ssegDotPin, OUTPUT);
 
   //Turn 7-Segment off
-  digitalWrite(ssegAPin, 1);
-  digitalWrite(ssegBPin, 1);
-  digitalWrite(ssegCPin, 1);
-  digitalWrite(ssegDPin, 1);
+  sevenSegmentValue = -1;
+  setSevenSegment();
   digitalWrite(ssegDotPin, 1);
     
   WiFi.disconnect();
@@ -69,116 +67,138 @@ void setup()
   digitalWrite(ssegCPin, 0);
   digitalWrite(ssegDPin, 1);
   
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED)
     delay(500);
-  }
+
   WebServer.begin();
   IPAddress myIP = WiFi.localIP();
-  
-  Serial.print("Server is UP and RUNNING: ");
-  Serial.println(myIP);
 
   // Start MDNS
-  if (mdns.begin("drivemonit", WiFi.localIP()))
-    Serial.println("MDNS responder started");
+  mdns.begin("drivemonit", WiFi.localIP());
     
   //Turn 7seg off
-  digitalWrite(ssegAPin, 1);
-  digitalWrite(ssegBPin, 1);
-  digitalWrite(ssegCPin, 1);
-  digitalWrite(ssegDPin, 1);
+  sevenSegmentValue = -1;
+  setSevenSegment();
 
   //Display IP on 7-Segment
   displayIP(myIP);
+
+  //Listen on /api/v1/status
+  WebServer.on("/api/v1/status", handleStatusMessage);
+
+  //Listen on NotFound
+  WebServer.onNotFound(handleNotFound);
+
+  //Listen on /api/v1/display
+  WebServer.on("/api/v1/display", handleDisplayMessage);
 }
 
 void loop()
 {
-  // Check if a user has connected
-  client = WebServer.available();
-  if (!client)
-    return;
+  WebServer.handleClient();
+}
 
-  // Wait until the user sends some data
-  while (!client.available())
-    delay(1);
-
-  // Read the first line of the request
-  String request = client.readStringUntil('\r\n');
-  client.flush();
-  
-  for(int i = 0 ; i < 11 ; i++)
+void handleStatusMessage() 
+{
+  char message[400];
+  if(WebServer.method() == HTTP_GET)
   {
-    sprintf(str, "/7seg=%d", i);
-    if(request.indexOf(str) != -1)
-    {
-      digitalWrite(ssegAPin, numbers[i][3]);
-      digitalWrite(ssegBPin, numbers[i][2]);
-      digitalWrite(ssegCPin, numbers[i][1]);
-      digitalWrite(ssegDPin, numbers[i][0]);
-    }
-  }
+    light = analogRead(ldrPin);
+    light = map(light, 0, 1023, 0, 100);
 
-  if(request[4] == '/' && request[5] == 's' && request[6] == 'e' && request[7] == 'r' && request[8] == 'v' && request[9] == 'o' && request[10] == '=')
+    SHT1x sht15(shDATAPin, shSCKPin); //Data, SCK
+    tempC = sht15.readTemperatureC();
+    humidity = sht15.readHumidity();
+        
+    sprintf(message, " {\"temperature\": %d, \"light\": %d, \"humidity\": %d, \"sevenSegment\": %d} ", tempC, light, humidity, sevenSegmentValue);
+    WebServer.send(200, "application/jsonrequest", message);
+  }
+  else
+    handleNotFound();
+}
+
+void handleDisplayMessage()
+{
+  if(WebServer.method() == HTTP_POST)
   {
-    degree = (request[11] - 48) * 100 + (request[12] - 48) * 10 + (request[13] - 48);
-    ourServo.attach(servoPin);
-    for(int pos = 0; pos <= degree ; pos++)
+    if(WebServer.arg(0) == "sevenSegment")
     {
-      ourServo.write(pos);
-      delay(15);
+      if(WebServer.arg(1).toInt() >= -1 && WebServer.arg(1).toInt() < 10)
+      {
+        sevenSegmentValue = WebServer.arg(1).toInt();
+        setSevenSegment();
+        WebServer.send(200, "text/plain", "");
+      }
+      else
+        WebServer.send(422, "text/plain", "Out of Range Input");
     }
-    ourServo.detach();
+    else if(WebServer.arg(0) == "servo")
+    {
+      if(WebServer.arg(1).toInt() >= 0 && WebServer.arg(1).toInt() < 360)
+      {
+        degree = WebServer.arg(1).toInt();
+        setServo();
+        WebServer.send(200, "text/plain", "");        
+      }
+      else
+        WebServer.send(422, "text/plain", "Out of Range Input");
+    }
+    else
+      handleNotFound();
   }
+  else
+  {
+    WebServer.sendHeader("Access-Control-Allow-Headers", "Content-Type, Content-Length, Authorization, Accept, X-Requested-With", false);
+    WebServer.sendHeader("Access-Contrl-Allow-Methods", "POST, GET, OPTIONS", false);
+    WebServer.sendHeader("Access-Control-Max-Age", "86400", false);
+    WebServer.send(200, "text/plain", "");
+  }
+}
 
-  SHT1x sht15(shDATAPin, shSCKPin); //Data, SCK
+void handleNotFound() 
+{
+  String message = "File Not Found\n\n";
+  message += "URI: ";
+  message += WebServer.uri();
+  message += "\nMethod: ";
+  message += (WebServer.method() == HTTP_GET)?"GET":"POST";
+  message += "\nArguments: ";
+  message += WebServer.args();
+  message += "\n";
+  for (uint8_t i = 0; i < WebServer.args(); i++)
+    message += " " + WebServer.argName(i) + ": " + WebServer.arg(i) + "\n";
+  WebServer.send(404, "text/plain", message);
+}
 
-  tempC = sht15.readTemperatureC();
-  humidity = sht15.readHumidity();
+void setServo() // Set degree variable then call this to go to that degree
+{
+  ourServo.attach(servoPin);
+  for(int pos = 0; pos <= degree ; pos++)
+  {
+    ourServo.write(pos);
+    delay(15);
+  }
+  ourServo.detach();
+}
 
-  int light = analogRead(ldrPin);
-  light = map(light, 0, 1023, 0, 100);
+void setSevenSegment() // Set sevenSegmentValue variable then call this to display that number
+{
+  if(sevenSegmentValue == -1)
+  {
+    digitalWrite(ssegAPin, 1);
+    digitalWrite(ssegBPin, 1);
+    digitalWrite(ssegCPin, 1);
+    digitalWrite(ssegDPin, 1);  
+
+  }
+  else
+  {
+    digitalWrite(ssegAPin, numbers[sevenSegmentValue][3]);
+    digitalWrite(ssegBPin, numbers[sevenSegmentValue][2]);
+    digitalWrite(ssegCPin, numbers[sevenSegmentValue][1]);
+    digitalWrite(ssegDPin, numbers[sevenSegmentValue][0]);    
+  }
   
-  // Return the response
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: text/html; charset=UTF-8");
-  client.println("");
-  client.println("<!DOCTYPE HTML>");
-  client.println("<html>");
-  client.println("<head>");
-  client.println("<title>Exercise 1</title>");
-  client.println("</head>");
-  client.println("<body>");
-  client.println("<center><a href=\"/\">UPDATE</a></center>");
-  client.print("<center>Temperature : ");
-  client.println(tempC);
-  client.print(" 'C</br>Humidity: ");
-  client.print(humidity);
-  client.print(" %</br>Light: ");
-  client.print(light, DEC);
-  client.println(" %</center>");
-  client.println("</br></br>7-SEGMENT: ");
-  client.println("<a href = \"/7seg=0\">0</a>");
-  client.println("<a href = \"/7seg=1\">1</a>");
-  client.println("<a href = \"/7seg=2\">2</a>");
-  client.println("<a href = \"/7seg=3\">3</a>");
-  client.println("<a href = \"/7seg=4\">4</a>");
-  client.println("<a href = \"/7seg=5\">5</a>");
-  client.println("<a href = \"/7seg=6\">6</a>");
-  client.println("<a href = \"/7seg=7\">7</a>");
-  client.println("<a href = \"/7seg=8\">8</a>");
-  client.println("<a href = \"/7seg=9\">9</a>");
-  client.println("<a href = \"/7seg=10\">Off</a>");
-  client.println("</br></br>Servo: ");
-  client.println("<a href = \"/servo=000\">0</a>");
-  client.println("<a href = \"/servo=030\">30</a>");
-  client.println("<a href = \"/servo=045\">45</a>");
-  client.println("<a href = \"/servo=060\">60</a>");
-  client.println("<a href = \"/servo=090\">90</a>");
-  client.println("<a href = \"/servo=099\">99</a>");
-  client.println("<a href = \"/servo=179\">179</a>");
-  client.println("</body>");
-  client.println("</html>");
 }
 
 void displayIP(IPAddress myIP) // Display IP on 7-SEGMENT
@@ -193,49 +213,37 @@ void displayIP(IPAddress myIP) // Display IP on 7-SEGMENT
 
     if(digit1 != 0)
     {
-      digitalWrite(ssegAPin, numbers[digit1][3]);
-      digitalWrite(ssegBPin, numbers[digit1][2]);
-      digitalWrite(ssegCPin, numbers[digit1][1]);
-      digitalWrite(ssegDPin, numbers[digit1][0]);
+      sevenSegmentValue = digit1;
+      setSevenSegment();
 
       delay(500);      
     }
     
-    digitalWrite(ssegAPin, 1);
-    digitalWrite(ssegBPin, 1);
-    digitalWrite(ssegCPin, 1);
-    digitalWrite(ssegDPin, 1);
+    sevenSegmentValue = -1;
+    setSevenSegment();
 
     delay(100);
           
     if(digit2 != 0)
     {
-      digitalWrite(ssegAPin, numbers[digit2][3]);
-      digitalWrite(ssegBPin, numbers[digit2][2]);
-      digitalWrite(ssegCPin, numbers[digit2][1]);
-      digitalWrite(ssegDPin, numbers[digit2][0]);
+      sevenSegmentValue = digit2;
+      setSevenSegment();
 
       delay(500);      
     }
 
-    digitalWrite(ssegAPin, 1);
-    digitalWrite(ssegBPin, 1);
-    digitalWrite(ssegCPin, 1);
-    digitalWrite(ssegDPin, 1);
+    sevenSegmentValue = -1;
+    setSevenSegment();
 
     delay(100);
 
-    digitalWrite(ssegAPin, numbers[digit3][3]);
-    digitalWrite(ssegBPin, numbers[digit3][2]);
-    digitalWrite(ssegCPin, numbers[digit3][1]);
-    digitalWrite(ssegDPin, numbers[digit3][0]);
-
+    sevenSegmentValue = digit3;
+    setSevenSegment();
+    
     delay(500);      
 
-    digitalWrite(ssegAPin, 1);
-    digitalWrite(ssegBPin, 1);
-    digitalWrite(ssegCPin, 1);
-    digitalWrite(ssegDPin, 1);
+    sevenSegmentValue = -1;
+    setSevenSegment();
 
     delay(100);
 
